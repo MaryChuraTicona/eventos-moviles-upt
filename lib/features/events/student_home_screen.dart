@@ -2,6 +2,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../services/certificate_service.dart';
 
 import '../../services/registration_service.dart';
 import 'student_event_detail_screen.dart';
@@ -514,7 +516,8 @@ class _MyHistoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
     if (uid == null) {
       return const _EmptyState(
         icon: Icons.lock_outline,
@@ -546,19 +549,20 @@ class _MyHistoryTab extends StatelessWidget {
           );
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, i) {
-            final it = items[i];
-            final cs = Theme.of(context).colorScheme;
-            final rango = '${_hm(it.horaInicio)} – ${_hm(it.horaFin)}';
-            final estadoAsistencia = it.attended
-                ? 'Asistido'
-                : it.finished
-                    ? 'Finalizado'
-                    : 'Inscrito';
+        final certificatesByEvent = <String, UserRegistrationView>{};
+        for (final reg in items) {
+          certificatesByEvent.putIfAbsent(reg.eventId, () => reg);
+        }
+
+        final historyWidgets = <Widget>[];
+        for (final it in items) {
+          final cs = Theme.of(context).colorScheme;
+          final rango = '${_hm(it.horaInicio)} – ${_hm(it.horaFin)}';
+          final estadoAsistencia = it.attended
+              ? 'Asistido'
+              : it.finished
+                  ? 'Finalizado'
+                  : 'Inscrito';
 
             final estadoIcon = it.attended
                 ? Icons.verified_rounded
@@ -571,14 +575,15 @@ class _MyHistoryTab extends StatelessWidget {
             final registeredAtLabel =
                 it.createdAt != null ? _formatRegistrationDate(it.createdAt!) : null;
 
-            return Card(
+            historyWidgets.add(
+            Card(
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
                 side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
               ),
               
-               child: Padding(
+                child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,12 +681,268 @@ class _MyHistoryTab extends StatelessWidget {
                   ],
                 ),
               ),
-            );
-          },
+
+ ),
+          );
+          historyWidgets.add(const SizedBox(height: 12));
+        }
+        if (historyWidgets.isNotEmpty) {
+          historyWidgets.removeLast();
+        }
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            if (certificatesByEvent.isNotEmpty) ...[
+              _CertificatesSection(
+                uid: uid,
+                email: user?.email,
+                events: certificatesByEvent.values.toList(),
+              ),
+              const SizedBox(height: 24),
+            ],
+            ...historyWidgets,
+          ],
         );
       },
     );
   }
+}
+
+class _CertificatesSection extends StatelessWidget {
+  final String uid;
+  final String? email;
+  final List<UserRegistrationView> events;
+
+  const _CertificatesSection({
+    required this.uid,
+    required this.email,
+    required this.events,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.workspace_premium, color: cs.onPrimaryContainer),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Certificados',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Consulta tu avance y emite certificados disponibles.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...events.map(
+              (event) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _CertificateProgressTile(
+                  uid: uid,
+                  email: email,
+                  eventId: event.eventId,
+                  eventName: event.eventName.isEmpty ? event.titulo : event.eventName,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CertificateProgressTile extends StatelessWidget {
+  final String uid;
+  final String? email;
+  final String eventId;
+  final String eventName;
+
+  const _CertificateProgressTile({
+    required this.uid,
+    required this.email,
+    required this.eventId,
+    required this.eventName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<CertificateProgress>(
+      stream: CertificateService().watchProgress(uid, eventId),
+      builder: (context, snapshot) {
+        final progress = snapshot.data ??
+            const CertificateProgress(
+              totalSessions: 0,
+              attendedSessions: 0,
+              percentage: 0,
+              issued: false,
+              issuedAt: null,
+              downloadUrl: null,
+
+
+            );
+           final cs = Theme.of(context).colorScheme;
+        final ratio = progress.totalSessions == 0
+            ? 0.0
+            : (progress.attendedSessions / progress.totalSessions).clamp(0.0, 1.0);
+        final hasEmail = (email ?? '').isNotEmpty;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        eventName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '${progress.attendedSessions}/${progress.totalSessions} ponencias registradas',
+                        style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                if (progress.issued)
+                  Icon(Icons.verified_rounded, color: cs.primary)
+                else
+                  Icon(Icons.timelapse, color: cs.onSurfaceVariant),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress.totalSessions == 0 ? 0 : ratio,
+              color: cs.primary,
+              backgroundColor: cs.surfaceVariant,
+            ),
+            const SizedBox(height: 8),
+            if (progress.issued)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Emitido el ${_formatDate(progress.issuedAt)}',
+                      style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                    ),
+                  ),
+                  if (progress.downloadUrl != null && progress.downloadUrl!.isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: SelectableText(
+                            progress.downloadUrl!,
+                            style: TextStyle(
+                              color: cs.primary,
+                              fontSize: 11,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Copiar enlace',
+                          onPressed: () => _copyUrl(context, progress.downloadUrl!),
+                          icon: const Icon(Icons.copy_rounded),
+                        )
+                      ],
+                    )
+                ],
+              )
+            else if (progress.canIssue)
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: hasEmail
+                      ? () async {
+                          try {
+                            await CertificateService().issueCertificate(
+                              uid: uid,
+                              eventId: eventId,
+                              email: email!,
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Certificado emitido para "$eventName".'),
+                              ),
+                            );
+                          } catch (e) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(content: Text('Error: $e')));
+                          }
+                        }
+                      : null,
+                  child: const Text('Emitir certificado'),
+                ),
+              )
+            else
+              Text(
+                progress.totalSessions == 0
+                    ? 'Aún no hay ponencias registradas para este evento.'
+                    : 'Necesitas al menos el 80% de asistencia para emitir tu certificado.',
+                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+Future<void> _copyUrl(BuildContext context, String url) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Enlace copiado en el portapapeles.')));
+    }
+  }
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return 'recientemente';
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = dt.month.toString().padLeft(2, '0');
+    return '$day/$month/${dt.year}';
+  }
+
 }
 
 /* helpers */

@@ -2201,95 +2201,138 @@ class _ReportesTabState extends State<_ReportesTab> {
                   ),
                   const SizedBox(height: 16),
                   
-                  Row(
-                    children: [
-                      // Filtro por Rol
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedRoleForExport,
-                          decoration: InputDecoration(
-                            labelText: 'Filtrar por Rol',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.person_outline),
-                            filled: true,
-                            fillColor: cs.surfaceVariant.withOpacity(0.3),
-                          ),
-                          items: [
-                            const DropdownMenuItem(value: null, child: Text('Todos los roles')),
-                            DropdownMenuItem(value: UserRoles.admin, child: const Text('Administradores')),
-                            DropdownMenuItem(value: UserRoles.student, child: const Text('Estudiantes')),
-                            DropdownMenuItem(value: UserRoles.teacher, child: const Text('Docentes')),
-                            DropdownMenuItem(value: UserRoles.speaker, child: const Text('Ponentes')),
-                          ],
-                          onChanged: (v) => setState(() => _selectedRoleForExport = v),
+                 
+         LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 900;
+                      final roleDropdown = DropdownButtonFormField<String>(
+                        value: _selectedRoleForExport,
+                        decoration: InputDecoration(
+                          labelText: 'Filtrar por Rol',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.person_outline),
+                          filled: true,
+                          fillColor: cs.surfaceVariant.withOpacity(0.3),
+
                         ),
-                      ),
-                      
-                      const SizedBox(width: 16),
-                      
-                      // Filtro por Facultad
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedFacultyForExport,
-                          decoration: InputDecoration(
-                            labelText: 'Filtrar por Facultad',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.school_outlined),
-                            filled: true,
-                            fillColor: cs.surfaceVariant.withOpacity(0.3),
-                          ),
-                          items: [
-                            const DropdownMenuItem(value: null, child: Text('Todas las facultades')),
-                            ...Faculties.all.map((code) => DropdownMenuItem(
-                              value: code,
-                              child: Text(code),
-                            )),
-                            const DropdownMenuItem(value: '_none', child: Text('Sin facultad')),
-                          ],
-                          onChanged: (v) => setState(() => _selectedFacultyForExport = v),
+                     
+ items: [
+                          const DropdownMenuItem(value: null, child: Text('Todos los roles')),
+                          DropdownMenuItem(value: UserRoles.admin, child: const Text('Administradores')),
+                          DropdownMenuItem(value: UserRoles.student, child: const Text('Estudiantes')),
+                          DropdownMenuItem(value: UserRoles.teacher, child: const Text('Docentes')),
+                          DropdownMenuItem(value: UserRoles.speaker, child: const Text('Ponentes')),
+                        ],
+                        onChanged: (v) => setState(() => _selectedRoleForExport = v),
+                      );
+
+                      final facultyDropdown = DropdownButtonFormField<String>(
+                        value: _selectedFacultyForExport,
+                        decoration: InputDecoration(
+                          labelText: 'Filtrar por Facultad',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.school_outlined),
+                          filled: true,
+                          fillColor: cs.surfaceVariant.withOpacity(0.3),
+
                         ),
-                      ),
-                    ],
+                
+items: [
+                          const DropdownMenuItem(value: null, child: Text('Todas las facultades')),
+                          ...Faculties.all.map((code) => DropdownMenuItem(
+                                value: code,
+                                child: Text(code),
+                              )),
+                          const DropdownMenuItem(value: '_none', child: Text('Sin facultad')),
+                        ],
+                        onChanged: (v) => setState(() => _selectedFacultyForExport = v),
+                      );
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            roleDropdown,
+                            const SizedBox(height: 12),
+                            facultyDropdown,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: roleDropdown),
+                          const SizedBox(width: 16),
+                          Expanded(child: facultyDropdown),
+                        ],
+                      );
+                    },
+
+
                   ),
                   
                   const SizedBox(height: 24),
                   
                   // Botón de vista previa
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() => _showPreview = !_showPreview);
-                          },
-                          icon: Icon(_showPreview ? Icons.visibility_off : Icons.visibility),
-                          label: Text(_showPreview ? 'Ocultar Vista Previa' : 'Mostrar Vista Previa'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+         
+  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 900;
+                      final previewButton = OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() => _showPreview = !_showPreview);
+                        },
+                        icon: Icon(_showPreview ? Icons.visibility_off : Icons.visibility),
+                        label: Text(_showPreview ? 'Ocultar Vista Previa' : 'Mostrar Vista Previa'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+
+
                           ),
+
+                        );
+
+                      final exportButton = FilledButton.icon(
+                        onPressed: _isExporting ? null : _exportUsers,
+                        icon: _isExporting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.download_rounded),
+                        label: Text(_isExporting ? 'Descargando...' : 'Descargar CSV'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+
+
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _isExporting ? null : _exportUsers,
-                          icon: _isExporting
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.download_rounded),
-                          label: Text(_isExporting ? 'Descargando...' : 'Descargar CSV'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
-                        ),
-                      ),
-                    ],
+  );
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            previewButton,
+                            const SizedBox(height: 12),
+                            exportButton,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: previewButton),
+                          const SizedBox(width: 16),
+                          Expanded(child: exportButton),
+                        ],
+                      );
+                    },
+
+                  
                   ),
                 ],
               ),
