@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "657851768701",
+    "project_id": "eventosepis-8edf0",
+    "storage_bucket": "eventosepis-8edf0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:657851768701:android:a728c7b38c8b68d56af614",
+        "android_client_info": {
+          "package_name": "com.example.eventos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfsyDbsiodgx3PnN1xGYOxJO8a5ZR2sbo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
