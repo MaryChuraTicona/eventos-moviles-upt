@@ -1,16 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-//import 'dart:html' as html; 
-import '../../utils/csv_download_stub.dart'
-    if (dart.library.html) '../../utils/csv_download_web.dart';
+
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/error_handler.dart';
 import '../../core/constants.dart';
+import '../../utils/csv_downloader.dart';
 import 'forms/event_form.dart';
 import 'forms/session_form.dart';
 import 'forms/speaker_form.dart';
@@ -2701,7 +2700,7 @@ class _ReportesTabState extends State<_ReportesTab> {
       final csvData = _generateCSV(users);
       
       // Descargar archivo CSV
-      _downloadCSVFile(csvData, users.length);
+      await _downloadCSVFile(csvData, users.length);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2769,38 +2768,40 @@ class _ReportesTabState extends State<_ReportesTab> {
     return buffer.toString();
   }
   
-  /// Descarga el archivo CSV en el navegador
-  void _downloadCSVFile(String csvData, int userCount) {
+ /// Descarga el archivo CSV en la plataforma soportada
+  Future<void> _downloadCSVFile(String csvData, int userCount) async {
+    // Convertir CSV a bytes con codificación UTF-8 (con BOM para Excel)
+    final bytes = utf8.encode('\uFEFF$csvData'); // BOM para que Excel reconozca UTF-8
+
+    // Generar nombre de archivo con fecha
+    final now = DateTime.now();
+    final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    final filename = 'usuarios_upt_$timestamp.csv';
     try {
-      // Convertir CSV a bytes con codificación UTF-8 (con BOM para Excel)
-      final bytes = utf8.encode('\uFEFF$csvData'); // BOM para que Excel reconozca UTF-8
-      
-      // Crear blob
-      //final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
-      
-      // Crear URL del blob
-      //final url = html.Url.createObjectUrlFromBlob(blob);
-      
-      // Generar nombre de archivo con fecha
-      final now = DateTime.now();
-      final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
-      final filename = 'usuarios_upt_$timestamp.csv';
-      
-      // Crear elemento <a> y simular click
-      //final anchor = html.AnchorElement(href: url)
-        //..setAttribute('download', filename)
-        //..style.display = 'none';
-      
-      //html.document.body?.append(anchor);
-     // anchor.click();
-      
-      // Limpiar
-      //anchor.remove();
-      //html.Url.revokeObjectUrl(url);
+     
+      await downloadCsv(bytes, filename);
       
       AppLogger.success('✅ CSV descargado: $filename ($userCount usuarios)');
-    } catch (e) {
-      AppLogger.error('Error al descargar CSV: $e');
+     } on UnsupportedError catch (e) {
+      AppLogger.warning('Descarga no soportada: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              kIsWeb
+                  ? '❌ No se pudo descargar el archivo CSV en este navegador.'
+                  : 'La descarga de CSV está disponible solo en la versión web.',
+            ),
+          ),
+        );
+      }
+    } catch (e, st) {
+      AppLogger.error('Error al descargar CSV', e, st);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error al descargar CSV: $e')),
+        );
+      }
       rethrow;
     }
   }
