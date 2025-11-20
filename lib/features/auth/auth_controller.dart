@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../core/constants.dart';
 import '../../core/error_handler.dart';
 
@@ -222,7 +223,21 @@ class AuthController {
           rethrow;
         }
       } else {
-        credential = await _auth.signInWithProvider(provider);
+        
+         final googleUser = await GoogleSignIn(scopes: ['email']).signIn();
+
+        if (googleUser == null) {
+          throw ErrorMessages.cancelledByUser;
+        }
+
+        final googleAuth = await googleUser.authentication;
+
+        credential = await _auth.signInWithCredential(
+          GoogleAuthProvider.credential(
+            idToken: googleAuth.idToken,
+            accessToken: googleAuth.accessToken,
+          ),
+        );
       }
 
       final email = credential.user?.email?.toLowerCase() ?? '';

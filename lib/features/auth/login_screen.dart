@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:google_sign_in/google_sign_in.dart';
 // Usa tu router real
 import '../../app/router_by_rol.dart';
 
@@ -244,10 +244,25 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         }
       } else {
-        final cred = await FirebaseAuth.instance.signInWithProvider(provider);
+        
+        final googleUser = await GoogleSignIn(scopes: ['email']).signIn();
+
+        if (googleUser == null) {
+          _snack('Inicio cancelado');
+          return;
+        }
+
+        final googleAuth = await googleUser.authentication;
+        final cred = await FirebaseAuth.instance.signInWithCredential(
+          GoogleAuthProvider.credential(
+            idToken: googleAuth.idToken,
+            accessToken: googleAuth.accessToken,
+          ),
+        );
         final email = cred.user?.email?.toLowerCase() ?? '';
         if (_modoInstitucional && !_esInstitucional(email)) {
           await FirebaseAuth.instance.signOut();
+          await GoogleSignIn().signOut();
           _snack('Solo correos institucionales @virtual.upt.pe');
           return;
         }
