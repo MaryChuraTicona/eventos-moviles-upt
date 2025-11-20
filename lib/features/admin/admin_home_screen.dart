@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+//import 'dart:html' as html; 
+import '../../utils/csv_download_stub.dart'
+    if (dart.library.html) '../../utils/csv_download_web.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -2202,75 +2204,69 @@ class _ReportesTabState extends State<_ReportesTab> {
                   const SizedBox(height: 16),
                   
                  
-         LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isNarrow = constraints.maxWidth < 900;
-                      final roleDropdown = DropdownButtonFormField<String>(
-                        value: _selectedRoleForExport,
-                        decoration: InputDecoration(
-                          labelText: 'Filtrar por Rol',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.person_outline),
-                          filled: true,
-                          fillColor: cs.surfaceVariant.withOpacity(0.3),
+        LayoutBuilder(builder: (context, constraints) {
+                    final isCompact = constraints.maxWidth < 720;
+                    final fieldWidth = isCompact
+                        ? double.infinity
+                        : (constraints.maxWidth - 16) / 2;
 
-                        ),
-                     
- items: [
-                          const DropdownMenuItem(value: null, child: Text('Todos los roles')),
-                          DropdownMenuItem(value: UserRoles.admin, child: const Text('Administradores')),
-                          DropdownMenuItem(value: UserRoles.student, child: const Text('Estudiantes')),
-                          DropdownMenuItem(value: UserRoles.teacher, child: const Text('Docentes')),
-                          DropdownMenuItem(value: UserRoles.speaker, child: const Text('Ponentes')),
-                        ],
-                        onChanged: (v) => setState(() => _selectedRoleForExport = v),
-                      );
-
-                      final facultyDropdown = DropdownButtonFormField<String>(
-                        value: _selectedFacultyForExport,
-                        decoration: InputDecoration(
-                          labelText: 'Filtrar por Facultad',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.school_outlined),
-                          filled: true,
-                          fillColor: cs.surfaceVariant.withOpacity(0.3),
-
-                        ),
-                
-items: [
-                          const DropdownMenuItem(value: null, child: Text('Todas las facultades')),
-                          ...Faculties.all.map((code) => DropdownMenuItem(
-                                value: code,
-                                child: Text(code),
-                              )),
-                          const DropdownMenuItem(value: '_none', child: Text('Sin facultad')),
-                        ],
-                        onChanged: (v) => setState(() => _selectedFacultyForExport = v),
-                      );
-
-                      if (isNarrow) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            roleDropdown,
-                            const SizedBox(height: 12),
-                            facultyDropdown,
-                          ],
+                    Widget _fieldWrapper(Widget child) => SizedBox(
+                          width: fieldWidth,
+                          child: child,
                         );
-                      }
 
-                      return Row(
-                        children: [
-                          Expanded(child: roleDropdown),
-                          const SizedBox(width: 16),
-                          Expanded(child: facultyDropdown),
-                        ],
-                      );
-                    },
+                    return Wrap(
+                      spacing: 16,
+                      runSpacing: 12,
+                      children: [
+                        _fieldWrapper(
+                          DropdownButtonFormField<String>(
+                            value: _selectedRoleForExport,
+                            decoration: InputDecoration(
+                              labelText: 'Filtrar por Rol',
+                              border: const OutlineInputBorder(),
+                              prefixIcon: const Icon(Icons.person_outline),
+                              filled: true,
+                              fillColor: cs.surfaceVariant.withOpacity(0.3),
+                            ),
+                            items: [
+                              const DropdownMenuItem(value: null, child: Text('Todos los roles')),
+                              DropdownMenuItem(value: UserRoles.admin, child: const Text('Administradores')),
+                              DropdownMenuItem(value: UserRoles.student, child: const Text('Estudiantes')),
+                              DropdownMenuItem(value: UserRoles.teacher, child: const Text('Docentes')),
+                              DropdownMenuItem(value: UserRoles.speaker, child: const Text('Ponentes')),
+                            ],
+                            onChanged: (v) => setState(() => _selectedRoleForExport = v),
+                          ),
+                        ), 
+                        _fieldWrapper(
+                          DropdownButtonFormField<String>(
+                            value: _selectedFacultyForExport,
+                            decoration: InputDecoration(
+                              labelText: 'Filtrar por Facultad',
+                              border: const OutlineInputBorder(),
+                              prefixIcon: const Icon(Icons.school_outlined),
+                              filled: true,
+                              fillColor: cs.surfaceVariant.withOpacity(0.3),
+                            ),
+                            items: [
+                              const DropdownMenuItem(value: null, child: Text('Todas las facultades')),
+                              ...Faculties.all.map((code) => DropdownMenuItem(
+                                    value: code,
+                                    child: Text(code),
+                                  )),
+                              const DropdownMenuItem(value: '_none', child: Text('Sin facultad')),
+                            ],
+                            onChanged: (v) => setState(() => _selectedFacultyForExport = v),
 
+                             ),
+                              ), 
+                              ],
+                                
+                    );
+                  }),
 
-                  ),
-                  
+                      
                   const SizedBox(height: 24),
                   
                   // Botón de vista previa
@@ -2780,10 +2776,10 @@ items: [
       final bytes = utf8.encode('\uFEFF$csvData'); // BOM para que Excel reconozca UTF-8
       
       // Crear blob
-      final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+      //final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
       
       // Crear URL del blob
-      final url = html.Url.createObjectUrlFromBlob(blob);
+      //final url = html.Url.createObjectUrlFromBlob(blob);
       
       // Generar nombre de archivo con fecha
       final now = DateTime.now();
@@ -2791,16 +2787,16 @@ items: [
       final filename = 'usuarios_upt_$timestamp.csv';
       
       // Crear elemento <a> y simular click
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', filename)
-        ..style.display = 'none';
+      //final anchor = html.AnchorElement(href: url)
+        //..setAttribute('download', filename)
+        //..style.display = 'none';
       
-      html.document.body?.append(anchor);
-      anchor.click();
+      //html.document.body?.append(anchor);
+     // anchor.click();
       
       // Limpiar
-      anchor.remove();
-      html.Url.revokeObjectUrl(url);
+      //anchor.remove();
+      //html.Url.revokeObjectUrl(url);
       
       AppLogger.success('✅ CSV descargado: $filename ($userCount usuarios)');
     } catch (e) {

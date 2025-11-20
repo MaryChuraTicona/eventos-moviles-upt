@@ -166,11 +166,12 @@ class ErrorMessages {
   static const String userNotFound = 'Usuario no encontrado.';
   static const String wrongPassword = 'Contraseña incorrecta.';
   static const String accountDisabled = 'Tu cuenta está desactivada.';
-  static const String institutionalOnly = 'Solo se permiten correos institucionales @virtual.upt.pe';
+  static const String institutionalOnly = 'Solo se permiten correos institucionales @virtual.upt.pe o @upt.pe';
  static const String invalidDocument = 'Número de documento inválido.';
   static const String invalidPhone = 'Número de celular inválido.';
   static const String documentAlreadyInUse = 'Ya existe una cuenta registrada con este documento.';
    static const String cancelledByUser = 'Inicio cancelado por el usuario.';
+ 
   }
 
 /// Mensajes de éxito
