@@ -170,7 +170,8 @@ class ErrorMessages {
  static const String invalidDocument = 'Número de documento inválido.';
   static const String invalidPhone = 'Número de celular inválido.';
   static const String documentAlreadyInUse = 'Ya existe una cuenta registrada con este documento.';
-}
+   static const String cancelledByUser = 'Inicio cancelado por el usuario.';
+  }
 
 /// Mensajes de éxito
 class SuccessMessages {

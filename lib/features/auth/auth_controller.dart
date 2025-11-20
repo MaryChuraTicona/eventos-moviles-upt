@@ -1,9 +1,11 @@
 // lib/features/auth/auth_controller.dart
 import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
+
 import '../../core/constants.dart';
 import '../../core/error_handler.dart';
 
@@ -12,11 +14,22 @@ class AuthController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Google Sign-In (v7+) usa singleton
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+  bool _googleInitialized = false;
+
   /// Stream del usuario actual
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   /// Usuario actual
   User? get currentUser => _auth.currentUser;
+
+  /// Asegura que GoogleSignIn esté inicializado (v7+)
+  Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized) return;
+    await _googleSignIn.initialize();
+    _googleInitialized = true;
+  }
 
   /// Verifica si un email es institucional
   bool isInstitutionalEmail(String email) {
@@ -30,12 +43,12 @@ class AuthController {
       final email = (user.email ?? '').toLowerCase();
       final isInstitutional = isInstitutionalEmail(email);
       final domain = email.contains('@') ? email.split('@')[1] : '';
-      
+
       final ref = _firestore.collection(FirestoreCollections.users).doc(uid);
 
       await _firestore.runTransaction((txn) async {
         final snap = await txn.get(ref);
-        
+
         if (!snap.exists) {
           // Crear nuevo usuario
           txn.set(ref, {
@@ -101,12 +114,12 @@ class AuthController {
   }) async {
     try {
       AppLogger.info('Intentando login con email: $email');
-      
+
       final credential = await _auth.signInWithEmailAndPassword(
         email: email.trim().toLowerCase(),
         password: password,
       );
-      
+
       AppLogger.success('Login exitoso: $email');
       return credential;
     } on FirebaseAuthException catch (e) {
@@ -125,20 +138,21 @@ class AuthController {
     required Map<String, dynamic> profileData,
   }) async {
     try {
-     final normalizedEmail = email.trim().toLowerCase();
+      final normalizedEmail = email.trim().toLowerCase();
       AppLogger.info('Registrando nuevo usuario: $normalizedEmail');
 
-     if (isInstitutionalEmail(normalizedEmail)) {
+      // En este modo NO se permite registro con correo institucional
+      if (isInstitutionalEmail(normalizedEmail)) {
         throw ErrorMessages.institutionalOnly;
       }
 
-    
       final nombres = (profileData['nombres'] ?? '').toString().trim();
       final apellidos = (profileData['apellidos'] ?? '').toString().trim();
       final telefono = (profileData['telefono'] ?? '').toString().trim();
       final documento = (profileData['documento'] ?? '').toString().trim();
-      
-       if (documento.isNotEmpty) {
+
+      // Validar documento duplicado
+      if (documento.isNotEmpty) {
         final existingByDocument = await _firestore
             .collection(FirestoreCollections.users)
             .where('documento', isEqualTo: documento)
@@ -155,8 +169,7 @@ class AuthController {
         email: normalizedEmail,
         password: password,
       );
-      
-      
+
       final displayName = [nombres, apellidos]
           .where((part) => part.isNotEmpty)
           .join(' ')
@@ -167,10 +180,9 @@ class AuthController {
         await credential.user!.updateDisplayName(displayName);
       }
 
-
-      // Crear documento en Firestore
+      // Crear documento base en Firestore
       await ensureUserDocument(credential.user!);
-      
+
       final profileDoc = <String, dynamic>{
         if (displayName.isNotEmpty) 'displayName': displayName,
         'nombres': nombres,
@@ -187,6 +199,7 @@ class AuthController {
             .doc(credential.user!.uid)
             .set(profileDoc, SetOptions(merge: true));
       }
+
       AppLogger.success('Registro exitoso: $email');
       return credential;
     } on FirebaseAuthException catch (e) {
@@ -199,65 +212,86 @@ class AuthController {
   }
 
   /// Inicia sesión con Google
+  ///
+  /// [institutionalMode] = true  → solo acepta correos institucionales
   Future<UserCredential> signInWithGoogle({
     required bool institutionalMode,
   }) async {
     try {
-      AppLogger.info('Intentando login con Google (institucional: $institutionalMode)');
-      
-      final provider = GoogleAuthProvider();
+      AppLogger.info(
+        'Intentando login con Google (institucional: $institutionalMode)',
+      );
+
+      final GoogleAuthProvider provider = GoogleAuthProvider();
       UserCredential credential;
 
       if (kIsWeb) {
+        // Web: usar popup/redirect de Firebase directamente
         try {
           credential = await _auth.signInWithPopup(provider);
         } on FirebaseAuthException catch (e) {
           if (e.code == 'popup-blocked' ||
               e.code == 'popup-closed-by-user' ||
               e.code == 'unauthorized-domain') {
-            AppLogger.warning('Popup bloqueado, intentando con redirect');
+            AppLogger.warning(
+                'Popup bloqueado o cerrado en web, intentando redirect');
             await _auth.signInWithRedirect(provider);
-            // En redirect, el AuthWrapper manejará el callback
+            // El flujo continuará en el callback de redirect
             throw 'redirect';
           }
           rethrow;
         }
       } else {
-        
-         final googleUser = await GoogleSignIn(scopes: ['email']).signIn();
+        // Mobile/Desktop: usar google_sign_in v7+
+        await _ensureGoogleInitialized();
 
-        if (googleUser == null) {
-          throw ErrorMessages.cancelledByUser;
-        }
+       if (!_googleSignIn.supportsAuthenticate()) {
+  AppLogger.error(
+      'GoogleSignIn.authenticate() no soportado en esta plataforma');
+  throw 'Google Sign-In no está soportado en esta plataforma.';
+}
 
-        final googleAuth = await googleUser.authentication;
 
-        credential = await _auth.signInWithCredential(
-          GoogleAuthProvider.credential(
-            idToken: googleAuth.idToken,
-            accessToken: googleAuth.accessToken,
-          ),
+        // Flujo interactivo de autenticación
+        final googleUser =
+            await _googleSignIn.authenticate(scopeHint: const ['email']);
+
+        // Obtener token de ID (ya no existe accessToken en v7)
+        final googleAuth = googleUser.authentication;
+
+        final oauthCredential = GoogleAuthProvider.credential(
+          idToken: googleAuth.idToken,
         );
+
+        credential = await _auth.signInWithCredential(oauthCredential);
       }
 
       final email = credential.user?.email?.toLowerCase() ?? '';
-      
+
       // Validar dominio institucional si es necesario
       if (institutionalMode && !isInstitutionalEmail(email)) {
         await _auth.signOut();
+        try {
+          await _googleSignIn.signOut();
+        } catch (_) {
+          // Ignorar errores de signOut de Google
+        }
         throw ErrorMessages.institutionalOnly;
       }
 
-      // Crear/actualizar documento
+      // Crear/actualizar documento en Firestore
       await ensureUserDocument(credential.user!);
-      
+
       AppLogger.success('Login con Google exitoso: $email');
       return credential;
     } on FirebaseAuthException catch (e) {
-      AppLogger.error('Error en login con Google', e);
+      AppLogger.error('Error en login con Google (FirebaseAuth)', e);
       throw ErrorHandler.handleAuthError(e);
     } catch (e, st) {
-      if (e == 'redirect') rethrow;
+      if (e == 'redirect') {
+        // El flujo continúa en el callback del redirect en web
+        rethrow;
+      }
       AppLogger.error('Error inesperado en Google Sign In', e, st);
       rethrow;
     }
@@ -267,9 +301,9 @@ class AuthController {
   Future<void> sendPasswordResetEmail(String email) async {
     try {
       AppLogger.info('Enviando email de recuperación a: $email');
-      
+
       await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
-      
+
       AppLogger.success('Email de recuperación enviado');
     } on FirebaseAuthException catch (e) {
       AppLogger.error('Error al enviar email de recuperación', e);
@@ -285,6 +319,15 @@ class AuthController {
     try {
       AppLogger.info('Cerrando sesión');
       await _auth.signOut();
+
+      // Intentar también cerrar sesión de Google en plataformas nativas
+      try {
+        await _ensureGoogleInitialized();
+        await _googleSignIn.signOut();
+      } catch (_) {
+        // Si falla, no rompemos el flujo de logout
+      }
+
       AppLogger.success('Sesión cerrada');
     } catch (e, st) {
       AppLogger.error('Error al cerrar sesión', e, st);
@@ -292,4 +335,3 @@ class AuthController {
     }
   }
 }
-
