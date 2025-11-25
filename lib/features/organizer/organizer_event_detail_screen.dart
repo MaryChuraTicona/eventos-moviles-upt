@@ -8,9 +8,10 @@ import '../admin/models/admin_session_model.dart';
 import '../admin/models/admin_speaker_model.dart';
 import '../admin/services/admin_session_service.dart';
 import '../admin/services/admin_speaker_service.dart';
-import '../../services/certificate_service.dart';
 import '../../services/attendance_service.dart';
+import '../../services/certificate_service.dart';
 import 'qr/organizer_qr_scanner_screen.dart';
+import 'services/organizer_chat_service.dart';
 import 'services/organizer_event_service.dart';
 
 class OrganizerEventDetailScreen extends StatefulWidget {
@@ -29,7 +30,7 @@ class _OrganizerEventDetailScreenState extends State<OrganizerEventDetailScreen>
   @override
   void initState() {
     super.initState();
-    _controller = TabController(length: 3, vsync: this);
+    _controller = TabController(length: 4, vsync: this);
     _controller.addListener(() {
       setState(() {});
     });
@@ -68,6 +69,7 @@ class _OrganizerEventDetailScreenState extends State<OrganizerEventDetailScreen>
                 Tab(icon: Icon(Icons.schedule), text: 'Ponencias'),
                 Tab(icon: Icon(Icons.mic), text: 'Ponentes'),
                 Tab(icon: Icon(Icons.qr_code_scanner), text: 'Asistencia'),
+                 Tab(icon: Icon(Icons.forum_outlined), text: 'Chat'),
               ],
             ),
           ),
@@ -78,6 +80,7 @@ class _OrganizerEventDetailScreenState extends State<OrganizerEventDetailScreen>
               OrganizerSessionsTab(event: event),
               OrganizerSpeakersTab(event: event),
               OrganizerAttendanceTab(event: event),
+              OrganizerChatTab(event: event),
             ],
           ),
         );
@@ -132,6 +135,8 @@ class _OrganizerEventDetailScreenState extends State<OrganizerEventDetailScreen>
           icon: const Icon(Icons.qr_code_scanner),
           label: const Text('Escanear QR'),
         );
+        case 3:
+        return null;
       default:
         return null;
     }
@@ -440,6 +445,260 @@ class _AttendanceSessionTile extends StatelessWidget {
           if (horaInicio != null)
             'Inicio: ${horaInicio.hour.toString().padLeft(2, '0')}:${horaInicio.minute.toString().padLeft(2, '0')}',
         ].join(' • ')),
+      ),
+    );
+  }
+}
+  class OrganizerChatTab extends StatelessWidget {
+  final AdminEventModel event;
+  const OrganizerChatTab({super.key, required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<AdminSessionModel>>(
+      stream: AdminSessionService().streamByEvent(event.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final sessions = snapshot.data ?? const [];
+        if (sessions.isEmpty) {
+          return const Center(
+            child: Text(
+              'Aún no hay ponencias para chatear. Registra las primeras y abre el chat para dudas en vivo.',
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          itemCount: sessions.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final session = sessions[index];
+            return _SessionChatCard(event: event, session: session);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SessionChatCard extends StatefulWidget {
+  final AdminEventModel event;
+  final AdminSessionModel session;
+
+  const _SessionChatCard({required this.event, required this.session});
+
+  @override
+  State<_SessionChatCard> createState() => _SessionChatCardState();
+}
+
+class _SessionChatCardState extends State<_SessionChatCard> {
+  final _controller = TextEditingController();
+  final _chatService = OrganizerChatService();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+
+    setState(() => _sending = true);
+    try {
+      await _chatService.sendMessage(
+        eventId: widget.event.id,
+        sessionId: widget.session.id,
+        text: text,
+      );
+      _controller.clear();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo enviar el mensaje: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final session = widget.session;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        session.titulo,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        session.ponenteNombre.isEmpty
+                            ? 'Sin ponente asignado'
+                            : 'Ponente: ${session.ponenteNombre}',
+                        style: TextStyle(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.groups_2_outlined, size: 16),
+                  label: const Text('Chat en vivo'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              height: 220,
+              decoration: BoxDecoration(
+                color: cs.surfaceVariant.withOpacity(0.25),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.outlineVariant),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: StreamBuilder<List<OrganizerChatMessage>>(
+                  stream: _chatService.streamMessages(widget.event.id, session.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final messages = snapshot.data ?? const [];
+                    if (messages.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            'Aún no hay preguntas o comentarios. Envía el primer mensaje para abrir el chat.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: cs.onSurfaceVariant),
+                          ),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = messages[index];
+                        return _MessageBubble(message: msg);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    maxLength: 240,
+                    decoration: const InputDecoration(
+                      hintText: 'Escribe un anuncio o responde preguntas…',
+                      border: OutlineInputBorder(),
+                      counterText: '',
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _sending ? null : _sendMessage,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
+                  label: const Text('Enviar'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  final OrganizerChatMessage message;
+
+  const _MessageBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final time = message.createdAt;
+    final timeLabel = time != null
+        ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+        : '—';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.person_outline, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      message.senderName,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(
+                    timeLabel,
+                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(message.text),
+            ],
+          ),
+        ),
       ),
     );
   }

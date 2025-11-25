@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../core/error_handler.dart';
 import '../../core/constants.dart';
@@ -2105,6 +2107,7 @@ class _ReportesTabState extends State<_ReportesTab> {
   String? _selectedFacultyForExport;
   String? _selectedRoleForExport;
   bool _isExporting = false;
+  bool _isExportingPdf = false;
   bool _showPreview = false;
   
   @override
@@ -2268,7 +2271,7 @@ class _ReportesTabState extends State<_ReportesTab> {
                       
                   const SizedBox(height: 24),
                   
-                  // Botón de vista previa
+                   // Botones de vista previa y exportación
          
   LayoutBuilder(
                     builder: (context, constraints) {
@@ -2642,49 +2645,50 @@ class _ReportesTabState extends State<_ReportesTab> {
     );
   }
   
-  Future<void> _exportUsers() async {
-    setState(() => _isExporting = true);
-    
-    try {
-      // Obtener usuarios de Firestore
-      var query = FirebaseFirestore.instance.collection('usuarios').orderBy('createdAt', descending: true);
-      
-      final snapshot = await query.get();
-      var users = snapshot.docs;
-      
-      // Aplicar filtros
-      if (_selectedRoleForExport != null) {
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchUsersForExport() async {
+    var query = FirebaseFirestore.instance.collection('usuarios').orderBy('createdAt', descending: true);
+    final snapshot = await query.get();
+    var users = snapshot.docs;
+
+    // Aplicar filtros de rol
+    if (_selectedRoleForExport != null) {
+      users = users.where((doc) {
+        final data = doc.data();
+        final role = (data['role'] ?? data['rol'] ?? '').toString().toLowerCase();
+
+        String normalizedRole = role;
+        if (role == 'student') normalizedRole = 'estudiante';
+        if (role == 'teacher') normalizedRole = 'docente';
+        if (role == 'speaker') normalizedRole = 'ponente';
+
+        return normalizedRole == _selectedRoleForExport;
+      }).toList();
+    }
+
+    // Aplicar filtros de facultad
+    if (_selectedFacultyForExport != null) {
+      if (_selectedFacultyForExport == '_none') {
+
         users = users.where((doc) {
           final data = doc.data();
-          final role = (data['role'] ?? data['rol'] ?? '').toString().toLowerCase();
-          
-          // Normalizar rol: manejar tanto español como inglés
-          String normalizedRole = role;
-          if (role == 'student') normalizedRole = 'estudiante';
-          if (role == 'teacher') normalizedRole = 'docente';
-          if (role == 'speaker') normalizedRole = 'ponente';
-          
-          return normalizedRole == _selectedRoleForExport;
+         
+         final faculty = data['faculty']?.toString() ?? '';
+          return faculty.isEmpty;
         }).toList();
-      }
+      } 
       
-      if (_selectedFacultyForExport != null) {
-        if (_selectedFacultyForExport == '_none') {
-          users = users.where((doc) {
-            final data = doc.data();
-            final faculty = data['faculty']?.toString() ?? '';
-            return faculty.isEmpty;
-          }).toList();
-        } else {
-          users = users.where((doc) {
-            final data = doc.data();
-            final faculty = data['faculty']?.toString() ?? '';
-            return faculty == _selectedFacultyForExport;
-          }).toList();
-        }
-      }
-      
-      if (users.isEmpty) {
+ }
+
+    return users;
+  }
+
+  Future<void> _exportUsers() async {
+    setState(() => _isExporting = true);
+
+    try {
+      final users = await _fetchUsersForExport();
+
+if (users.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -2700,7 +2704,7 @@ class _ReportesTabState extends State<_ReportesTab> {
       final csvData = _generateCSV(users);
       
       // Descargar archivo CSV
-      await _downloadCSVFile(csvData, users.length);
+      _downloadCSVFile(csvData, users.length);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2732,6 +2736,191 @@ class _ReportesTabState extends State<_ReportesTab> {
         setState(() => _isExporting = false);
       }
     }
+  }
+
+  Future<void> _exportUsersPdf() async {
+    setState(() => _isExportingPdf = true);
+
+    try {
+      final users = await _fetchUsersForExport();
+
+      if (users.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ No hay usuarios que coincidan con los filtros'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      final pdf = await _buildUsersPdf(users);
+      final now = DateTime.now();
+      final filename =
+          'reporte_usuarios_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.pdf';
+
+      await Printing.sharePdf(bytes: await pdf.save(), filename: filename);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ PDF generado con ${users.length} usuarios'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error al exportar PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
+  Future<pw.Document> _buildUsersPdf(List<QueryDocumentSnapshot<Map<String, dynamic>>> users) async {
+    final doc = pw.Document();
+    final accent = PdfColor.fromInt(0xFF1E88E5);
+
+    final headerStyle = pw.TextStyle(
+      fontSize: 24,
+      fontWeight: pw.FontWeight.bold,
+      color: accent,
+    );
+
+    final subtitleStyle = pw.TextStyle(
+      fontSize: 12,
+      color: PdfColors.grey700,
+    );
+
+    final rows = <List<String>>[
+      ['Email', 'Nombre', 'Rol', 'Facultad', 'Estado', 'Registro'],
+      ...users.map((doc) {
+        final data = doc.data();
+        final email = data['email']?.toString() ?? '';
+        final displayName = data['displayName']?.toString() ?? '';
+        final roleRaw = (data['role'] ?? data['rol'] ?? 'estudiante').toString();
+        final faculty = data['faculty']?.toString() ?? 'Sin asignar';
+        final active = data['active'] == true ? 'Activo' : 'Inactivo';
+        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+        final dateStr = _formatDate(createdAt);
+
+        final roleLabel = _translateRole(roleRaw);
+        return [email, displayName, roleLabel, faculty, active, dateStr];
+      }),
+    ];
+
+    final activeCount = users.where((u) => u.data()['active'] == true).length;
+    final inactiveCount = users.length - activeCount;
+    final adminCount = users.where((u) {
+      final role = (u.data()['role'] ?? u.data()['rol'] ?? '').toString().toLowerCase();
+      return role.contains('admin');
+    }).length;
+
+    doc.addPage(
+      pw.MultiPage(
+        pageTheme: const pw.PageTheme(margin: pw.EdgeInsets.all(32)),
+        build: (context) => [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Reporte de usuarios', style: headerStyle),
+                  pw.SizedBox(height: 4),
+                  pw.Text('Exportado el ${_formatDate(DateTime.now())}', style: subtitleStyle),
+                ],
+              ),
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.deepPurple100,
+                  borderRadius: pw.BorderRadius.circular(8),
+                  border: pw.Border.all(color: accent),
+                ),
+                child: pw.Text('${users.length} registros', style: pw.TextStyle(color: accent)),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 16),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey200,
+              borderRadius: pw.BorderRadius.circular(12),
+            ),
+            child: pw.Row(
+              children: [
+                _buildBadge('Activos', activeCount.toString(), accent),
+                pw.SizedBox(width: 12),
+                _buildBadge('Inactivos', inactiveCount.toString(), PdfColors.deepOrange),
+                pw.SizedBox(width: 12),
+                _buildBadge('Admins', adminCount.toString(), PdfColors.deepPurple),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 16),
+          pw.Table.fromTextArray(
+            data: rows,
+            headerDecoration: pw.BoxDecoration(color: PdfColors.purple100, ),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+            cellAlignment: pw.Alignment.centerLeft,
+            headerAlignment: pw.Alignment.centerLeft,
+            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(2),
+              1: const pw.FlexColumnWidth(2),
+              2: const pw.FlexColumnWidth(1.4),
+              3: const pw.FlexColumnWidth(1.4),
+              4: const pw.FlexColumnWidth(1.1),
+              5: const pw.FlexColumnWidth(1.2),
+            },
+          ),
+        ],
+      ),
+    );
+
+    return doc;
+  }
+
+  pw.Widget _buildBadge(String label, String value, PdfColor color) {
+    return pw.Expanded(
+      child: pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.purple100,
+
+          borderRadius: pw.BorderRadius.circular(12),
+         border: pw.Border.all(color: PdfColors.purple300),
+
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(label, style: pw.TextStyle(color: color, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              value,
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return 'N/A';
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
   
   String _generateCSV(List<QueryDocumentSnapshot<Map<String, dynamic>>> users) {
