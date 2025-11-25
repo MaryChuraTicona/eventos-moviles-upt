@@ -25,6 +25,7 @@ import 'services/admin_event_service.dart';
 import 'services/admin_session_service.dart';
 import 'services/admin_speaker_service.dart';
 import 'services/admin_seed_service.dart';
+import '../../services/registration_service.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -823,6 +824,7 @@ class _EventosTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final regSvc = RegistrationService();
     return Column(
       children: [
         _Toolbar(
@@ -849,6 +851,7 @@ class _EventosTab extends StatelessWidget {
                   cs: cs,
                   eventSvc: eventSvc,
                   sesSvc: sesSvc,
+                  regSvc: regSvc,
                 ),
                 separatorBuilder: (_, __) => const SizedBox(height: 20),
                 itemCount: events.length,
@@ -870,13 +873,14 @@ class _EventCard extends StatelessWidget {
   final ColorScheme cs;
   final AdminEventService eventSvc;
   final AdminSessionService sesSvc;
+  final RegistrationService regSvc;
 
   const _EventCard({
     required this.event,
     required this.cs,
     required this.eventSvc,
     required this.sesSvc,
-    
+    required this.regSvc,
   });
 
   @override
@@ -1086,11 +1090,17 @@ if (event.dias.isNotEmpty) ...[
                   ],
                 );
               },
-            ),
+            
           ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: _ParticipantsStrip(eventId: event.id, cs: cs, regSvc: regSvc),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             child: StreamBuilder<List<AdminSessionModel>>(
               stream: sesSvc.streamByEvent(event.id),
               builder: (context, sessionSnap) {
@@ -1212,6 +1222,91 @@ if (event.dias.isNotEmpty) ...[
     return '$day $month';
         
     
+  }
+}
+
+class _ParticipantsStrip extends StatelessWidget {
+  final String eventId;
+  final ColorScheme cs;
+  final RegistrationService regSvc;
+
+  const _ParticipantsStrip({
+    required this.eventId,
+    required this.cs,
+    required this.regSvc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<RegistrationParticipant>>(
+      stream: regSvc.watchEventParticipants(eventId),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return _SectionPlaceholder(
+            icon: Icons.group_outlined,
+            message: 'Cargando inscritos…',
+            cs: cs,
+          );
+        }
+
+        final participants = snap.data ?? const <RegistrationParticipant>[];
+        if (participants.isEmpty) {
+          return _SectionPlaceholder(
+            icon: Icons.group_add_outlined,
+            message: 'Sin inscritos registrados aún. Se mostrarán aquí automáticamente.',
+            cs: cs,
+          );
+        }
+
+        final visible = participants.take(10).toList();
+        final remaining = participants.length - visible.length;
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: cs.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.groups_2_rounded, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Participantes inscritos (${participants.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final p in visible)
+                      Chip(
+                        avatar: const Icon(Icons.person_outline, size: 16),
+                        label: Text(p.displayName),
+                        backgroundColor: cs.primaryContainer.withOpacity(0.2),
+                      ),
+                    if (remaining > 0)
+                      Chip(
+                        avatar: const Icon(Icons.more_horiz, size: 16),
+                        label: Text('+$remaining más'),
+                        backgroundColor: cs.surfaceVariant,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 

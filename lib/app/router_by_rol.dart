@@ -89,7 +89,7 @@ Future<Widget> goHomeByRolWidget(BuildContext context, User user) async {
     
     // Obtener el rol actual del usuario (respetando el rol en la base de datos)
     final roleRaw = (data['role'] ?? data['rol'])?.toString() ?? UserRoles.student;
-    final role = roleRaw.toLowerCase().trim();
+    var role = roleRaw.toLowerCase().trim();
     final active = (data['active'] ?? true) == true;
 
     AppLogger.debug('Usuario ${user.email}: role=$role, active=$active');
@@ -110,6 +110,8 @@ Future<Widget> goHomeByRolWidget(BuildContext context, User user) async {
       AppLogger.info('Estudiante sin facultad, mostrando selector');
       return const FacultySelectionScreen();
     }
+
+    
 
     final Widget home = switch (role) {
       UserRoles.admin      => const AdminHomeScreen(),

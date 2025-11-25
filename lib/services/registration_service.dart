@@ -1,15 +1,15 @@
 // lib/services/registration_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
+import '../core/constants.dart';
 import '../core/error_handler.dart';
 import 'attendance_service.dart';
 
 class RegistrationService {
   final _db = FirebaseFirestore.instance;
   
-  // Nombre de la colección (registrations en inglés para consistencia con BD existente)
-  static const String _collectionName = 'registrations';
-
+   // Nombre de la colección en Firestore (inscripciones)
+  static const String _collectionName = FirestoreCollections.registrations;
   /* =================== CRUD básico de inscripciones =================== */
 
   // Stream sencillo por usuario (si lo necesitas en otros lados)
@@ -31,7 +31,10 @@ class RegistrationService {
     String eventId, [
     String? sessionId,
     Map<String, dynamic>? extra,
-  ]) async {
+  ]) async { 
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final displayName = currentUser?.displayName ?? '';
+    final email = currentUser?.email ?? '';
     final id = _docId(eventId, uid, sessionId);
     await _db.collection(_collectionName).doc(id).set({
       'id': id,
@@ -39,6 +42,8 @@ class RegistrationService {
       'uid': uid,
       if (sessionId != null) 'sessionId': sessionId,
 if (sessionId == null) 'scope': 'event' else 'scope': 'session',
+      if (displayName.isNotEmpty) 'displayName': displayName,
+      if (email.isNotEmpty) 'email': email,
       if (extra != null)
         'answers': {
           ...extra,
@@ -58,6 +63,69 @@ if (sessionId == null) 'scope': 'event' else 'scope': 'session',
     final id = _docId(eventId, uid, sessionId);
     final doc = await _db.collection(_collectionName).doc(id).get();
     return doc.exists;
+  }
+/* =================== Inscritos por evento para Admin =================== */
+
+  Stream<List<RegistrationParticipant>> watchEventParticipants(String eventId) {
+    final registrationsStream = _db
+        .collection(_collectionName)
+        .where('eventId', isEqualTo: eventId)
+        .snapshots();
+
+    return registrationsStream.asyncMap((snap) async {
+      if (snap.docs.isEmpty) return <RegistrationParticipant>[];
+
+      final registrations = snap.docs.map((d) {
+        final data = d.data();
+        return _RawRegistration(
+          uid: (data['uid'] ?? '').toString(),
+          displayName: (data['displayName'] ?? '').toString(),
+          email: (data['email'] ?? '').toString(),
+        );
+      }).where((r) => r.uid.isNotEmpty).toList();
+
+      // Si faltan nombres, consultamos la colección de usuarios (lotes de 10)
+      final missing = registrations
+          .where((r) => r.displayName.isEmpty)
+          .map((r) => r.uid)
+          .toSet();
+
+      final Map<String, String> userNames = {};
+      if (missing.isNotEmpty) {
+        final chunks = <List<String>>[];
+        final ids = missing.toList();
+        const chunkSize = 10;
+        for (var i = 0; i < ids.length; i += chunkSize) {
+          chunks.add(ids.sublist(i, i + chunkSize > ids.length ? ids.length : i + chunkSize));
+        }
+
+        for (final chunk in chunks) {
+          final qs = await _db
+              .collection(FirestoreCollections.users)
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+          for (final doc in qs.docs) {
+            final data = doc.data();
+            final name = (data['displayName'] ?? data['nombre'] ?? '').toString();
+            if (name.isNotEmpty) {
+              userNames[doc.id] = name;
+            }
+          }
+        }
+      }
+
+      return registrations
+          .map(
+            (r) => RegistrationParticipant(
+              uid: r.uid,
+              displayName: r.displayName.isNotEmpty
+                  ? r.displayName
+                  : (userNames[r.uid] ?? 'Participante'),
+              email: r.email,
+            ),
+          )
+          .toList();
+    });
   }
 
   /* =================== Historial para StudentHome =================== */
@@ -230,4 +298,28 @@ class UserSessionStatus {
   final bool registered;
   final bool attended;
   const UserSessionStatus({required this.registered, required this.attended});
+}
+
+class _RawRegistration {
+  final String uid;
+  final String displayName;
+  final String email;
+
+  _RawRegistration({
+    required this.uid,
+    required this.displayName,
+    required this.email,
+  });
+}
+
+class RegistrationParticipant {
+  final String uid;
+  final String displayName;
+  final String email;
+
+  const RegistrationParticipant({
+    required this.uid,
+    required this.displayName,
+    required this.email,
+  });
 }
