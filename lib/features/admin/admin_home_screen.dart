@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 import '../../core/error_handler.dart';
 import '../../core/constants.dart';
@@ -2233,6 +2234,8 @@ class _ReportesTabState extends State<_ReportesTab> {
           ),
           const SizedBox(height: 32),
           
+          _buildCharts(cs),
+          const SizedBox(height: 24),
           // Card de exportación de usuarios
           Card(
             elevation: 0,
@@ -2385,6 +2388,20 @@ class _ReportesTabState extends State<_ReportesTab> {
 
                         );
 
+                        final pdfButton = FilledButton.tonalIcon(
+                        onPressed: _isExportingPdf ? null : _exportUsersPdf,
+                        icon: _isExportingPdf
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.picture_as_pdf_outlined),
+                        label: Text(_isExportingPdf ? 'Generando...' : 'Exportar PDF'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      );
                       final exportButton = FilledButton.icon(
                         onPressed: _isExporting ? null : _exportUsers,
                         icon: _isExporting
@@ -2411,6 +2428,8 @@ class _ReportesTabState extends State<_ReportesTab> {
                           children: [
                             previewButton,
                             const SizedBox(height: 12),
+                            pdfButton,
+                            const SizedBox(height: 12),
                             exportButton,
                           ],
                         );
@@ -2419,6 +2438,8 @@ class _ReportesTabState extends State<_ReportesTab> {
                       return Row(
                         children: [
                           Expanded(child: previewButton),
+                          const SizedBox(width: 16),
+                            Expanded(child: pdfButton),
                           const SizedBox(width: 16),
                           Expanded(child: exportButton),
                         ],
@@ -2734,6 +2755,233 @@ class _ReportesTabState extends State<_ReportesTab> {
                 ),
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+  Widget _buildCharts(ColorScheme cs) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('usuarios').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Error al cargar métricas: ${snapshot.error}'),
+            ),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              side: BorderSide(color: cs.outlineVariant),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Icon(Icons.bar_chart_rounded, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 12),
+                  const Text('Aún no hay datos para graficar.'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final roleCounts = <String, int>{};
+        var active = 0;
+        var inactive = 0;
+
+        for (final doc in docs) {
+          final data = doc.data();
+          final rawRole = (data['role'] ?? data['rol'] ?? 'estudiante').toString();
+          final translatedRole = _translateRole(rawRole);
+          roleCounts.update(translatedRole, (value) => value + 1, ifAbsent: () => 1);
+
+          final isActive = data['active'] == true;
+          if (isActive) {
+            active++;
+          } else {
+            inactive++;
+          }
+        }
+
+        final palette = [
+          cs.primary,
+          cs.secondary,
+          cs.tertiary,
+          cs.error,
+          cs.primaryContainer,
+        ];
+
+        final entries = roleCounts.entries.toList();
+        final pieSections = List.generate(entries.length, (i) {
+          final e = entries[i];
+          return PieChartSectionData(
+            value: e.value.toDouble(),
+            color: palette[i % palette.length],
+            title: '${e.value}',
+            radius: 70,
+            titleStyle: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white),
+          );
+        });
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: cs.outlineVariant),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.insights_rounded, color: cs.onPrimaryContainer),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Métricas en tiempo real',
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                        ),
+                        Text(
+                          'Usuarios por rol y estado',
+                          style: TextStyle(color: cs.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 720;
+                    final chartContent = <Widget>[
+                      Expanded(
+                        child: Column(
+                          children: [
+                            SizedBox(
+                              height: 220,
+                              child: PieChart(
+                                PieChartData(
+                                  sections: pieSections,
+                                  sectionsSpace: 2,
+                                  centerSpaceRadius: 50,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: List.generate(entries.length, (i) {
+                                final e = entries[i];
+                                return _LegendChip(
+                                  color: palette[i % palette.length],
+                                  label: '${e.key}: ${e.value}',
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 18, height: 18),
+                      Expanded(
+                        child: SizedBox(
+                          height: 220,
+                          child: BarChart(
+                            BarChartData(
+                              borderData: FlBorderData(show: false),
+                              gridData: const FlGridData(show: false),
+                              titlesData: FlTitlesData(
+                                leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    reservedSize: 36,
+                                    getTitlesWidget: (value, meta) {
+                                      final label = value == 0 ? 'Activos' : 'Inactivos';
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 6),
+                                        child: Text(label, style: TextStyle(color: cs.onSurfaceVariant)),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              barGroups: [
+                                BarChartGroupData(
+                                  x: 0,
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: active.toDouble(),
+                                      width: 22,
+                                      color: cs.primary,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ],
+                                ),
+                                BarChartGroupData(
+                                  x: 1,
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: inactive.toDouble(),
+                                      width: 22,
+                                      color: cs.error,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ];
+
+                    if (isNarrow) {
+                      return Column(
+                        children: [
+                          chartContent[0],
+                          const SizedBox(height: 16),
+                          chartContent[2],
+                        ],
+                      );
+                    }
+
+                    return Row(children: chartContent);
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -3112,6 +3360,42 @@ String _translateRole(String role) {
   }
 }
 
+class _LegendChip extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _LegendChip({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: color.computeLuminance() > 0.5 ? Colors.black : Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 class _Toolbar extends StatelessWidget {
   final String title;
   final VoidCallback? onAdd;
