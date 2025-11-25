@@ -44,6 +44,16 @@ bool _shouldBeAdmin(String? email) {
   return adminEmails.contains(emailLower);
 }
 
+String _normalizeRole(String? raw) {
+  final role = (raw ?? UserRoles.student).toLowerCase().trim();
+  if (role.isEmpty) return UserRoles.student;
+  if (role == 'organizer' || role == 'organizador' || role == 'encargado') {
+    return UserRoles.organizer;
+  }
+  if (role == 'administrator') return UserRoles.admin;
+  return role;
+}
+
 /// Función que devuelve el widget de home según el rol del usuario
 /// 
 /// Esta función es usada por [AuthWrapper] para determinar a qué pantalla
@@ -86,9 +96,9 @@ Future<Widget> goHomeByRolWidget(BuildContext context, User user) async {
     }
 
     final data = Map<String, dynamic>.from(snap.data() ?? {});
-    
+
     // Obtener el rol actual del usuario (respetando el rol en la base de datos)
-    final roleRaw = (data['role'] ?? data['rol'])?.toString() ?? UserRoles.student;
+    final roleRaw = _normalizeRole(data['role'] ?? data['rol']);
     var role = roleRaw.toLowerCase().trim();
     final active = (data['active'] ?? true) == true;
 
@@ -159,7 +169,7 @@ Future<void> goHomeByRol(BuildContext context) async {
     }
 
     final data = Map<String, dynamic>.from(snap.data() ?? {});
-    final roleRaw = (data['role'] ?? data['rol'])?.toString() ?? UserRoles.student;
+    final roleRaw = _normalizeRole(data['role'] ?? data['rol']);
     final role = roleRaw.toLowerCase().trim();
     final active = (data['active'] ?? true) == true;
 
